@@ -1,6 +1,6 @@
-# rgun-build-aws-cft-01
+# Automating AWS Resource Deployment Using GitLab SaaS Pipelines and CloudFormation
 
-
+In this blog, we will explore how to automate AWS resource deployment using GitLab SaaS pipelines and AWS CloudFormation. We will define a pipeline that deploys infrastructure to two separate AWS environments, Dev and Prod, ensuring a consistent deployment process across both environments. The CloudFormation templates define a basic network and an EC2 instance, with parameters customized for each environment using separate parameter files.
 
 ## Repository Structure 
 The repository structure will now include a parameters folder where JSON files for CloudFormation parameters will be stored:
@@ -14,171 +14,67 @@ The repository structure will now include a parameters folder where JSON files f
 ├── parameters/
 │   ├── dev-<stake_name>-parameters.json
 │   ├── prod-<stack_name>-parameters.json
-└── scripts/
-    ├── deploy-cloudformation.sh
+└── scripts/bash
+    ├── deploy-cft.sh
+    ├── review-changeset-cft.sh
+    ├── create-changeset-cft.sh
 
 ```
 
-## Sample Parameter JSON File 
-The JSON file defines parameters that will be injected into the CloudFormation stack during deployment. For example, here’s a dev-parameters.json file that provides values for the stack’s parameters:
+## AWS Accounts and Environments
 
-```
-{
-    "Parameters": {
-        "VpcCidr": "10.0.0.0/16",
-        "SubnetCidr": "10.0.1.0/24",
-        "InstanceType": "t2.micro",
-        "KeyName": "my-keypair"
-    }
-}
-```
+- **Dev Account**: Resources are deployed for development purposes.
+- **Prod Account**: Resources are deployed after successful testing in the Dev account.
 
-In this example:
+The pipeline is triggered on each branch push, with Dev deployments triggered from the `dev` branch and Prod deployments triggered from the `main` branch.
 
-VpcCidr, SubnetCidr, InstanceType, and KeyName are the parameters that will be passed to the CloudFormation stack.
+## GitLab Pipeline Stages
 
+The pipeline consists of four key stages:
 
-##  Updated CloudFormation Templates 
-Network Stack (network-stack.yml)
-Updated to accept parameters:
+1. **Validate**: Validate the syntax and configuration of the CloudFormation templates.
+2. **Create Change Set**: Generate change sets for review before deploying the resources.
+3. **Review Change Set**: Verify the generated change sets.
+4. **Execute Change Set**: Deploy the infrastructure to AWS.
 
-```
-AWSTemplateFormatVersion: '2010-09-09'
-Parameters:
-  VpcCidr:
-    Description: "The CIDR block for the VPC"
-    Type: String
-    Default: "10.0.0.0/16"
-  SubnetCidr:
-    Description: "The CIDR block for the subnet"
-    Type: String
-    Default: "10.0.1.0/24"
+Below is the complete pipeline configuration, CloudFormation templates, and parameter files used in this setup.
 
-Resources:
-  MyVPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: !Ref VpcCidr
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: MyVPC
+## CloudFormation Templates
 
-  MySubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref SubnetCidr
-      AvailabilityZone: !Select [ 0, !GetAZs ]
-      Tags:
-        - Key: Name
-          Value: MySubnet
-```
+The project consists of two CloudFormation templates: one for the network infrastructure and one for the application infrastructure. These templates define key resources such as a VPC, subnets, and an EC2 instance.
 
-## Application Stack (app-stack.yml)
-Updated to accept parameters:
+### Network Stack (network-stack.yml)
 
-```
-AWSTemplateFormatVersion: '2010-09-09'
-Parameters:
-  InstanceType:
-    Description: "EC2 instance type"
-    Type: String
-    Default: "t2.micro"
-  KeyName:
-    Description: "KeyPair name for SSH access"
-    Type: AWS::EC2::KeyPair::KeyName
-    Default: "my-keypair"
+The network stack CloudFormation template creates the network infrastructure, including a VPC and a subnet.
 
-Resources:
-  MyInstance:
-    Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: !Ref InstanceType
-      KeyName: !Ref KeyName
-      SubnetId: !Ref MySubnet
-      ImageId: ami-0c55b159cbfafe1f0  # Update with a valid AMI ID
+- **VpcCidr**: The CIDR block for the VPC.
+- **SubnetCidr**: The CIDR block for the subnet.
+- **Resources**: Creates the VPC and Subnet.
+- **Outputs**: The subnet ID is exported for use in other CloudFormation templates.
 
-```
+### Application Stack (app-stack.yml)
 
-## GitLab CI/CD Configuration (.gitlab-ci.yml)
-The .gitlab-ci.yml is updated to pass the parameters JSON file during the deployment stage.
+The application stack CloudFormation template defines an EC2 instance. The instance is launched in the subnet created by the network stack.
 
+- **InstanceType**: The type of EC2 instance (e.g., `t2.micro`).
+- **KeyName**: The SSH KeyPair name for EC2 access.
+- **ImageId**: The Amazon Machine Image (AMI) ID for the EC2 instance.
 
-```
-stages:
-  - validate
-  - deploy
+## Parameter Files
 
-variables:
-  AWS_REGION: "us-west-2"
-  STACK_NAME: "my-cloudformation-stack"
-  PARAMETERS_FILE: "parameters/dev-parameters.json" # Modify this for different environments
+Separate parameter files are used for the Dev and Prod environments. This allows different configurations for each environment while using the same CloudFormation templates.
 
-validate_cloudformation:
-  stage: validate
-  image: amazon/aws-cli:latest
-  script:
-    - aws cloudformation validate-template --template-body file://cloudformation/network-stack.yml
-    - aws cloudformation validate-template --template-body file://cloudformation/app-stack.yml
-  only:
-    - main
+### Dev Environment Parameters
 
-deploy_cloudformation:
-  stage: deploy
-  image: amazon/aws-cli:latest
-  script:
-    - chmod +x ./scripts/deploy-cloudformation.sh
-    - ./scripts/deploy-cloudformation.sh "network-stack.yml" $STACK_NAME $PARAMETERS_FILE
-  environment:
-    name: production
-  only:
-    - main
-```
+- **File**: `dev-app-stack-parameters.json` and `dev-network-stack-parameters.json`
+- **Content**: Contains environment-specific values such as the instance type, VPC CIDR, and Subnet CIDR for the Dev environment.
 
-## Updated Deployment Script (deploy-cloudformation.sh)
-The script is updated to include the --parameters argument, which passes the parameter JSON file to the CloudFormation stack.
+### Prod Environment Parameters
 
-```
-#!/bin/bash
+- **File**: `prod-app-stack-parameters.json` and `prod-network-stack-parameters.json`
+- **Content**: Contains environment-specific values for the Prod environment, ensuring that the production infrastructure is configured differently than Dev.
 
-set -e
+---
 
-TEMPLATE_FILE=$1
-STACK_NAME=$2
-PARAMETERS_FILE=$3
-
-if [ -z "$TEMPLATE_FILE" ] || [ -z "$STACK_NAME" ] || [ -z "$PARAMETERS_FILE" ]; then
-  echo "Usage: $0 <template-file> <stack-name> <parameters-file>"
-  exit 1
-fi
-
-# Check if the stack already exists
-stack_exists=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION --query "Stacks[0].StackStatus" --output text || echo "DOES_NOT_EXIST")
-
-if [ "$stack_exists" == "DOES_NOT_EXIST" ]; then
-  echo "Stack does not exist. Creating..."
-  aws cloudformation create-stack \
-    --stack-name $STACK_NAME \
-    --template-body file://cloudformation/$TEMPLATE_FILE \
-    --parameters file://$PARAMETERS_FILE \
-    --capabilities CAPABILITY_NAMED_IAM \
-    --region $AWS_REGION
-
-  aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_REGION
-else
-  echo "Stack exists. Updating..."
-  aws cloudformation update-stack \
-    --stack-name $STACK_NAME \
-    --template-body file://cloudformation/$TEMPLATE_FILE \
-    --parameters file://$PARAMETERS_FILE \
-    --capabilities CAPABILITY_NAMED_IAM \
-    --region $AWS_REGION
-
-  aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_REGION
-fi
-
-echo "CloudFormation stack $STACK_NAME processed successfully."
-```
+By leveraging GitLab CI/CD pipelines, CloudFormation, and parameter files, this setup ensures that AWS infrastructure is deployed consistently across both Dev and Prod environments. The use of parameter files allows customization for each environment, while the change set process provides an additional layer of review before executing any infrastructure changes.
 
