@@ -1,4 +1,4 @@
-# Automating AWS Resource Deployment Using GitLab SaaS Pipelines and CloudFormation
+# A Complete guide to deploy AWS Resource Using GitLab
 
 In this blog, we will explore how to automate AWS resource deployment using GitLab SaaS pipelines and AWS CloudFormation. We will define a pipeline that deploys infrastructure to two separate AWS environments, Dev and Prod, ensuring a consistent deployment process across both environments. The CloudFormation templates define a basic network and an EC2 instance, with parameters customized for each environment using separate parameter files.
 
